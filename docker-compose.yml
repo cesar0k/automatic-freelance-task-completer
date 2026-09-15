@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:8.8.2-alpine
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  tg_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run --no-dev python -m services.tg_bot.main
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run --no-dev python -m services.scraper.main
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run --no-dev python -m services.orchestrator.main
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agent_runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run --no-dev python -m services.agent_runner.main
+    env_file:
+      - .env
+    volumes:
+      # Agent working directory: code is written here per order.
+      - ./storage/tasks:/workspace/storage/tasks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
